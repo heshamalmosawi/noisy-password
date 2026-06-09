@@ -2,11 +2,9 @@ package main
 
 import (
 	"bufio"
-	"encoding/base64"
 	"fmt"
 	"log"
 	"os"
-	"strings"
 
 	"password-fuzzifier/internal"
 
@@ -50,7 +48,7 @@ func run(c *cli.Context) error {
 
 	if enterFile := c.String("enter"); enterFile != "" {
 		// Enter-only: load a previously saved passcode and re-enter it with fresh noise.
-		passcode, err = loadPasscode(enterFile)
+		passcode, err = internal.LoadPasscode(enterFile)
 		if err != nil {
 			return err
 		}
@@ -66,9 +64,8 @@ func run(c *cli.Context) error {
 		}
 
 		outputFile := c.String("output")
-		encoded := base64.StdEncoding.EncodeToString([]byte(string(passcode)))
-		if err := os.WriteFile(outputFile, []byte(encoded), 0o600); err != nil {
-			return fmt.Errorf("writing %q: %w", outputFile, err)
+		if err := internal.SavePasscode(outputFile, passcode); err != nil {
+			return err
 		}
 		fmt.Printf("Passcode generated and saved (base64) to %q.\n", outputFile)
 
@@ -85,23 +82,6 @@ func run(c *cli.Context) error {
 		return err
 	}
 	return walkthrough(keystrokes)
-}
-
-// loadPasscode reads and base64-decodes a saved passcode file.
-func loadPasscode(file string) ([]rune, error) {
-	data, err := os.ReadFile(file)
-	if err != nil {
-		return nil, fmt.Errorf("reading %q: %w", file, err)
-	}
-	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(data)))
-	if err != nil {
-		return nil, fmt.Errorf("decoding %q: %w", file, err)
-	}
-	passcode := []rune(string(decoded))
-	if len(passcode) == 0 {
-		return nil, fmt.Errorf("file %q contains no passcode", file)
-	}
-	return passcode, nil
 }
 
 // chooseSteps picks a keystroke budget in [min,max], then adjusts it to a value
