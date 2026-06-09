@@ -3,6 +3,7 @@ package test
 import (
 	"math/rand"
 	"password-fuzzifier/internal"
+	"strings"
 	"testing"
 )
 
@@ -82,6 +83,26 @@ func TestKeystrokesReconstructAndRespectCap(t *testing.T) {
 
 				if got := replay(ks); string(got) != string(passcode) {
 					t.Fatalf("seed=%d charset=%s n=%d: replay %q != passcode %q", seed, cs.name, n, string(got), string(passcode))
+				}
+
+				// Every emitted character must come from the charset, and the
+				// AddCorrect steps must spell the passcode in order.
+				var correct []rune
+				for _, s := range ks {
+					switch s.Action {
+					case internal.AddCorrect:
+						correct = append(correct, s.Char)
+						if !strings.ContainsRune(charSet, s.Char) {
+							t.Fatalf("seed=%d charset=%s n=%d: AddCorrect char %q not in charset", seed, cs.name, n, s.Char)
+						}
+					case internal.AddNoise:
+						if !strings.ContainsRune(charSet, s.Char) {
+							t.Fatalf("seed=%d charset=%s n=%d: AddNoise char %q not in charset", seed, cs.name, n, s.Char)
+						}
+					}
+				}
+				if string(correct) != string(passcode) {
+					t.Fatalf("seed=%d charset=%s n=%d: AddCorrect sequence %q != passcode %q", seed, cs.name, n, string(correct), string(passcode))
 				}
 			}
 		}
