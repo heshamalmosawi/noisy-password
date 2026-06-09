@@ -2,6 +2,7 @@ package test
 
 import (
 	"password-fuzzifier/internal"
+	"strings"
 	"testing"
 )
 
@@ -19,7 +20,7 @@ func TestGetCharset(t *testing.T) {
 		{name: "numeric uppercase", charset: "numeric", lowercase: false, want: "0123456789"},
 		{name: "alphanumeric lowercase", charset: "alphanumeric", lowercase: true, want: "abcdefghijklmnopqrstuvwxyz0123456789"},
 		{name: "alphanumeric uppercase", charset: "alphanumeric", lowercase: false, want: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"},
-		{name: "all lowercase", charset: "all", lowercase: true, want: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"},
+		{name: "all lowercase", charset: "all", lowercase: true, want: "abcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_=+[]{}|;:,.<>?/"},
 		{name: "all full", charset: "all", lowercase: false, want: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_=+[]{}|;:,.<>?/"},
 		{name: "invalid charset", charset: "invalid", lowercase: false, expectError: true},
 	}
@@ -40,5 +41,19 @@ func TestGetCharset(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestLowercaseEnforced guards the --lowercase contract: every charset's
+// lowercase variant must contain no uppercase letters.
+func TestLowercaseEnforced(t *testing.T) {
+	for _, name := range []string{"alphabet", "numeric", "alphanumeric", "all"} {
+		got, err := internal.GetCharset(name, true)
+		if err != nil {
+			t.Fatalf("GetCharset(%q, true): %v", name, err)
+		}
+		if strings.ContainsAny(got, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+			t.Errorf("lowercase charset %q contains uppercase letters: %q", name, got)
+		}
 	}
 }

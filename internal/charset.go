@@ -18,7 +18,7 @@ var charsets = map[string]map[bool]string{
 		false: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
 	},
 	"all": {
-		true:  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+		true:  "abcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_=+[]{}|;:,.<>?/",
 		false: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_=+[]{}|;:,.<>?/",
 	},
 }
