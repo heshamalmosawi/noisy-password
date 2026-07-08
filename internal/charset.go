@@ -2,6 +2,8 @@ package internal
 
 import "errors"
 
+// charsets maps a charset name to its lowercase (true) / uppercase-or-full
+// (false) variant. "numeric" is identical for both keys.
 var charsets = map[string]map[bool]string{
 	"alphabet": {
 		true:  "abcdefghijklmnopqrstuvwxyz",
@@ -16,13 +18,13 @@ var charsets = map[string]map[bool]string{
 		false: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
 	},
 	"all": {
-		true:  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+		true:  "abcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_=+[]{}|;:,.<>?/",
 		false: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_=+[]{}|;:,.<>?/",
 	},
 }
 
-// GetCharset returns a character set based on the provided charset name and lowercase option.
-// It supports "alphabet", "numeric", "alphanumeric", and "all" character sets.
+// GetCharset returns the character set for the given name and lowercase option.
+// Supported names: "alphabet", "numeric", "alphanumeric", "all".
 func GetCharset(charset string, lowercase bool) (string, error) {
 	if options, ok := charsets[charset]; ok {
 		return options[lowercase], nil
