@@ -42,6 +42,48 @@ func AdjustSteps(requested, n int) int {
 	return s
 }
 
+// ChooseSteps picks a keystroke budget within [min,max] that is valid for a
+// passcode of length n: at least n, and sharing n's parity (each noise excursion
+// costs two keystrokes). It selects uniformly among the valid values inside the
+// window, so the result never exceeds max. The window is only overridden when it
+// genuinely cannot be honored — when max is below n, or when min==max lands on
+// the wrong parity (in which case the nearest valid value at or below max is used).
+func ChooseSteps(min, max, n int, r Rand) int {
+	// A 0/1-length passcode admits no noise: the only valid budget is n itself.
+	if n <= 1 {
+		return n
+	}
+	if max < min {
+		min, max = max, min
+	}
+
+	// Snap the window inward to values with the correct parity and >= n.
+	lo := min
+	if lo < n {
+		lo = n
+	}
+	if (lo-n)%2 != 0 {
+		lo++ // up to the next value with n's parity
+	}
+	hi := max
+	if (hi-n)%2 != 0 {
+		hi-- // down to the previous value with n's parity
+	}
+
+	switch {
+	case hi < n:
+		// max is below the passcode length: impossible to honor, use the minimum.
+		return n
+	case lo > hi:
+		// No valid value lies in the window (e.g. min==max with the wrong parity);
+		// use the largest valid value that does not exceed max.
+		return hi
+	default:
+		count := (hi-lo)/2 + 1
+		return lo + 2*r.Intn(count)
+	}
+}
+
 // GenerateKeystrokes builds a fresh ADD/BACKSPACE keystroke sequence that, when
 // replayed on an empty buffer, yields exactly passcode. Real keystrokes are
 // interleaved with noise so that following the steps does not reveal which

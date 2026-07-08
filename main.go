@@ -76,25 +76,12 @@ func run(c *cli.Context) error {
 	}
 
 	// Build a fresh noisy keystroke sequence and walk through it.
-	steps := chooseSteps(c.Int("min"), c.Int("max"), len(passcode), rng)
+	steps := internal.ChooseSteps(c.Int("min"), c.Int("max"), len(passcode), rng)
 	keystrokes, err := internal.GenerateKeystrokes(passcode, charSet, steps, rng)
 	if err != nil {
 		return err
 	}
 	return walkthrough(keystrokes)
-}
-
-// chooseSteps picks a keystroke budget in [min,max], then adjusts it to a value
-// valid for a passcode of length n.
-func chooseSteps(min, max, n int, r internal.Rand) int {
-	if min < 1 {
-		min = 1
-	}
-	if max < min {
-		min, max = max, min
-	}
-	steps := min + r.Intn(max-min+1)
-	return internal.AdjustSteps(steps, n)
 }
 
 // walkthrough prints one keystroke instruction at a time, waiting for Enter

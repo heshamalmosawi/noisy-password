@@ -132,6 +132,68 @@ func TestAdjustSteps(t *testing.T) {
 	}
 }
 
+// TestChooseStepsRespectsWindow checks that the chosen budget stays within
+// [min,max] whenever a valid value exists there, and is always valid for the
+// generator (>= n and matching parity).
+func TestChooseStepsRespectsWindow(t *testing.T) {
+	r := rand.New(rand.NewSource(7))
+
+	// Specific cases, including the reported regression (min==max==12, n==5).
+	cases := []struct {
+		min, max, n int
+		wantMin     int // expected lower bound on result (inclusive)
+		wantMax     int // expected upper bound on result (inclusive)
+	}{
+		{min: 12, max: 12, n: 5, wantMin: 11, wantMax: 12}, // wrong-parity point -> 11, never 13 (> max)
+		{min: 12, max: 12, n: 4, wantMin: 12, wantMax: 12}, // valid as-is
+		{min: 12, max: 18, n: 4, wantMin: 12, wantMax: 18},
+		{min: 12, max: 18, n: 5, wantMin: 13, wantMax: 17},
+		{min: 18, max: 12, n: 4, wantMin: 12, wantMax: 18}, // inverted window is swapped
+		{min: 2, max: 3, n: 6, wantMin: 6, wantMax: 6},     // max below n -> forced to n
+		{min: 1, max: 5, n: 1, wantMin: 1, wantMax: 1},     // length 1 -> exactly 1
+	}
+	for _, tc := range cases {
+		for i := 0; i < 200; i++ {
+			got := internal.ChooseSteps(tc.min, tc.max, tc.n, r)
+			if got < tc.wantMin || got > tc.wantMax {
+				t.Fatalf("ChooseSteps(%d,%d,%d)=%d, want in [%d,%d]", tc.min, tc.max, tc.n, got, tc.wantMin, tc.wantMax)
+			}
+			if got < tc.n {
+				t.Fatalf("ChooseSteps(%d,%d,%d)=%d is below n", tc.min, tc.max, tc.n, got)
+			}
+			if tc.n > 1 && (got-tc.n)%2 != 0 {
+				t.Fatalf("ChooseSteps(%d,%d,%d)=%d has wrong parity for n=%d", tc.min, tc.max, tc.n, got, tc.n)
+			}
+		}
+	}
+
+	// Property sweep: result is always generator-valid and never exceeds max
+	// unless the window is infeasible (max < n).
+	for i := 0; i < 5000; i++ {
+		n := 1 + r.Intn(20)
+		min := 1 + r.Intn(30)
+		max := 1 + r.Intn(30)
+		got := internal.ChooseSteps(min, max, n, r)
+
+		if got < n || (n > 1 && (got-n)%2 != 0) {
+			t.Fatalf("ChooseSteps(%d,%d,%d)=%d is not generator-valid", min, max, n, got)
+		}
+		hi := max
+		if min > max {
+			hi = min // window is swapped internally
+		}
+		if hi >= n && got > hi {
+			t.Fatalf("ChooseSteps(%d,%d,%d)=%d exceeds feasible max %d", min, max, n, got, hi)
+		}
+		// The chosen budget must actually produce a valid sequence.
+		cs, _ := internal.GetCharset("alphanumeric", false)
+		pass, _ := internal.GeneratePassword(cs, n, r)
+		if _, err := internal.GenerateKeystrokes(pass, cs, got, r); err != nil {
+			t.Fatalf("ChooseSteps(%d,%d,%d)=%d rejected by generator: %v", min, max, n, got, err)
+		}
+	}
+}
+
 func TestGenerateKeystrokesRejectsBadInput(t *testing.T) {
 	r := rand.New(rand.NewSource(1))
 	cs, _ := internal.GetCharset("numeric", false)
