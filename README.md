@@ -43,6 +43,7 @@ cleared before the next one appears, and the passcode itself is never shown.
 | `--lowercase` | `-L` | off | Lowercase characters only |
 | `--generate-only` | `-g` | off | Generate + save, skip the walkthrough |
 | `--enter <file>` | `-e` | — | Skip generation; enter a saved code |
+| `--hide-steps` | `-q` | off | Hide the `[current/total]` step counter during the walkthrough |
 
 ## How it works
 
