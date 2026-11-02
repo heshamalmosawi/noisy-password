@@ -27,6 +27,7 @@ func main() {
 			&cli.BoolFlag{Name: "lowercase", Aliases: []string{"L"}, Usage: "Use lowercase characters only"},
 			&cli.BoolFlag{Name: "generate-only", Aliases: []string{"g"}, Usage: "Only generate and save the passcode; skip the entry walkthrough"},
 			&cli.StringFlag{Name: "enter", Aliases: []string{"e"}, Usage: "Skip generation; load a saved passcode from this file and walk through entering it"},
+			&cli.BoolFlag{Name: "hide-steps", Aliases: []string{"q"}, Usage: "Hide the [current/total] step counter during the walkthrough"},
 		},
 		Action: run,
 	}
@@ -81,13 +82,14 @@ func run(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	return walkthrough(keystrokes)
+	return walkthrough(keystrokes, !c.Bool("hide-steps"))
 }
 
 // walkthrough prints one keystroke instruction at a time, waiting for Enter
 // after each and clearing it before showing the next. The resulting passcode
-// is never displayed, and real vs. noise presses look identical.
-func walkthrough(steps []internal.Step) error {
+// is never displayed, and real vs. noise presses look identical. When showSteps
+// is true, each instruction is prefixed with a [current/total] counter.
+func walkthrough(steps []internal.Step, showSteps bool) error {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Println("Follow these keystrokes on your device. Press Enter after each one.")
 	fmt.Println()
@@ -97,7 +99,10 @@ func walkthrough(steps []internal.Step) error {
 		if s.Action == internal.Backspace {
 			instruction = "Backspace"
 		}
-		fmt.Printf("[%d/%d] %s", i+1, len(steps), instruction)
+		if showSteps {
+			fmt.Printf("[%d/%d] ", i+1, len(steps))
+		}
+		fmt.Print(instruction)
 
 		if _, err := reader.ReadString('\n'); err != nil {
 			// EOF or read error: stop cleanly without revealing anything.
