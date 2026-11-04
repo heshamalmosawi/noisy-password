@@ -109,6 +109,84 @@ func TestKeystrokesReconstructAndRespectCap(t *testing.T) {
 	}
 }
 
+// TestBufferDoesNotParkAtTopSlots guards against the 4-digit regression where the
+// generator settled on two characters early, then spent the rest of the budget
+// adding and deleting one character in the third slot. It measures how many
+// keystrokes pass, counting back from the end, before the buffer last held fewer
+// than two characters.
+func TestBufferDoesNotParkAtTopSlots(t *testing.T) {
+	const (
+		steps = 18
+		runs  = 2000
+		limit = 8.0 // mean keystrokes
+	)
+	cs, _ := internal.GetCharset("numeric", false)
+	passcode := []rune("4827")
+
+	total := 0
+	for seed := int64(0); seed < runs; seed++ {
+		ks, err := internal.GenerateKeystrokes(passcode, cs, steps, rand.New(rand.NewSource(seed)))
+		if err != nil {
+			t.Fatalf("seed=%d: %v", seed, err)
+		}
+		length, lastLow := 0, -1
+		for i, s := range ks {
+			if s.Action == internal.Backspace {
+				length--
+			} else {
+				length++
+			}
+			if length < 2 {
+				lastLow = i
+			}
+		}
+		total += len(ks) - 1 - lastLow
+	}
+
+	mean := float64(total) / runs
+	t.Logf("mean keystrokes parked at the top slots: %.2f of %d", mean, steps)
+	if mean >= limit {
+		t.Errorf("buffer parks at the top slots for %.2f keystrokes on average, want under %.1f", mean, limit)
+	}
+}
+
+// TestOnlyLastPressAtEachPositionIsCorrect checks the labelling that the final
+// result depends on: every AddNoise press is deleted later, and every AddCorrect
+// press survives to the end.
+func TestOnlyLastPressAtEachPositionIsCorrect(t *testing.T) {
+	cs, _ := internal.GetCharset("numeric", false)
+	for seed := int64(0); seed < 500; seed++ {
+		r := rand.New(rand.NewSource(seed))
+		for n := 1; n <= 12; n++ {
+			passcode, err := internal.GeneratePassword(cs, n, r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			steps := internal.AdjustSteps(n+r.Intn(24), n)
+			ks, err := internal.GenerateKeystrokes(passcode, cs, steps, r)
+			if err != nil {
+				t.Fatalf("seed=%d n=%d steps=%d: %v", seed, n, steps, err)
+			}
+			var buffer []internal.Step
+			for i, s := range ks {
+				if s.Action != internal.Backspace {
+					buffer = append(buffer, s)
+					continue
+				}
+				if buffer[len(buffer)-1].Action == internal.AddCorrect {
+					t.Fatalf("seed=%d n=%d: step %d deletes a press labelled correct", seed, n, i)
+				}
+				buffer = buffer[:len(buffer)-1]
+			}
+			for i, s := range buffer {
+				if s.Action != internal.AddCorrect || s.Char != passcode[i] {
+					t.Fatalf("seed=%d n=%d: position %d ended with %+v, want correct %q", seed, n, i, s, passcode[i])
+				}
+			}
+		}
+	}
+}
+
 func TestAdjustSteps(t *testing.T) {
 	tests := []struct {
 		requested, n, want int

@@ -92,10 +92,12 @@ func ChooseSteps(min, max, n int, r Rand) int {
 // It targets an auto-submitting field (e.g. an iPhone passcode), so the buffer
 // length never reaches len(passcode) until the single final keystroke.
 //
-// The construction maintains a committed-prefix invariant: the first k buffer
-// characters are always the correct prefix passcode[:k] and are never deleted;
-// g throwaway characters may sit on top. Backspaces only ever remove garbage,
-// which makes the final result provably equal to passcode.
+// The sequence is built in two passes. The first picks a random pattern of presses
+// and backspaces, which can delete back through any character in the buffer. The
+// second fills in the characters: only the last press at each position survives
+// to the end, so it gets the correct character and every earlier press at that
+// position gets a random one. This makes the final result provably equal to
+// passcode, with no character settled until its last press.
 func GenerateKeystrokes(passcode []rune, charset string, steps int, r Rand) ([]Step, error) {
 	n := len(passcode)
 	if n == 0 {
@@ -112,61 +114,38 @@ func GenerateKeystrokes(passcode []rune, charset string, steps int, r Rand) ([]S
 		return nil, fmt.Errorf("a 1-character passcode allows no noise; steps must be 1")
 	}
 
-	out := make([]Step, 0, steps)
-	k := 0 // committed correct prefix length (buffer[:k] == passcode[:k])
-	g := 0 // garbage characters currently on top
-
-	for i := 0; i < steps; i++ {
+	// First pass: choose the pattern, recording each position's last press.
+	out := make([]Step, steps)
+	lastPress := make([]int, n)
+	length := 0
+	for i := range out {
 		remaining := steps - i
-		// minNeeded = backspaces to clear current garbage + remaining correct adds.
-		minNeeded := g + (n - k)
+		// A press may only fill the buffer on the final keystroke, or the field
+		// would submit early.
+		canPress := length < n-1 || remaining == 1
+		// A backspace must leave enough keystrokes to fill the buffer again.
+		canDelete := length > 0 && remaining-1 >= n-length+1
 
-		if remaining == minNeeded {
-			// Forced finish: drain all garbage, then add the remaining correct chars.
-			if g > 0 {
-				out = append(out, Step{Action: Backspace})
-				g--
-			} else {
-				out = append(out, Step{Action: AddCorrect, Char: passcode[k]})
-				k++
-			}
-			continue
-		}
-
-		// Free choice. The parity invariant guarantees remaining-minNeeded is
-		// even and >= 2 here, so adding noise (which costs 2 to undo) stays in budget.
-		var opts []Action
-		// Advance a correct char only while doing so keeps noise room (k+1 <= n-2);
-		// the last two correct chars are placed in the forced finish, since the
-		// auto-submit cap forbids noise once the buffer is one short of full.
-		if g == 0 && k <= n-3 {
-			opts = append(opts, AddCorrect)
-		}
-		if g > 0 {
-			opts = append(opts, Backspace)
-		}
-		// Noise is only allowed below the cap: k+g must stay <= n-2 so the next
-		// add cannot reach the full length and submit early.
-		if k+g <= n-2 {
-			opts = append(opts, AddNoise)
-		}
-
-		switch opts[r.Intn(len(opts))] {
-		case AddCorrect:
-			out = append(out, Step{Action: AddCorrect, Char: passcode[k]})
-			k++
-		case AddNoise:
-			out = append(out, Step{Action: AddNoise, Char: cs[r.Intn(len(cs))]})
-			g++
-		case Backspace:
-			out = append(out, Step{Action: Backspace})
-			g--
+		if canPress && (!canDelete || r.Intn(2) == 0) {
+			out[i].Action = AddNoise
+			lastPress[length] = i
+			length++
+		} else {
+			out[i].Action = Backspace
+			length--
 		}
 	}
 
-	if k != n || g != 0 {
-		return nil, fmt.Errorf("internal error: ended at k=%d g=%d for passcode length %d", k, g, n)
+	// Second pass: every press is noise unless it is the last at its position.
+	for i := range out {
+		if out[i].Action == AddNoise {
+			out[i].Char = cs[r.Intn(len(cs))]
+		}
 	}
+	for position, i := range lastPress {
+		out[i] = Step{Action: AddCorrect, Char: passcode[position]}
+	}
+
 	if got := replay(out); string(got) != string(passcode) {
 		return nil, fmt.Errorf("internal error: replay %q != passcode %q", string(got), string(passcode))
 	}
