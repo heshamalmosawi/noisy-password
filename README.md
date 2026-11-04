@@ -50,7 +50,7 @@ cleared before the next one appears, and the passcode itself is never shown.
 The tool targets an **auto-submitting** field (the passcode submits the instant
 it reaches the required length), so the on-device buffer never reaches the full
 length until the very last keystroke. Each entry, a fresh ADD/BACKSPACE sequence
-is built that provably reconstructs the exact stored passcode while staying under that cap. See `internal/noise_steps.go` for the algorithm (committed-prefix invariant, step budgeting, and the cap).
+is built that provably reconstructs the exact stored passcode while staying under that cap. Noise is shared randomly across the points between real characters, favouring those with more room below the cap. See `internal/noise_steps.go` for the algorithm (committed-prefix invariant, noise distribution, step budgeting, and the cap).
 
 ## Tests
 
