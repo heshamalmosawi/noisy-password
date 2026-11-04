@@ -94,8 +94,14 @@ func ChooseSteps(min, max, n int, r Rand) int {
 //
 // The construction maintains a committed-prefix invariant: the first k buffer
 // characters are always the correct prefix passcode[:k] and are never deleted;
-// g throwaway characters may sit on top. Backspaces only ever remove garbage,
+// throwaway characters may sit on top. Backspaces only ever remove garbage,
 // which makes the final result provably equal to passcode.
+//
+// Noise is planned up front rather than chosen per keystroke. A gap is the point
+// just before passcode[k] is committed, and it can hold (n-1)-k garbage characters
+// before the field would submit. The noise budget is shared randomly across the
+// gaps, favouring those with more room, so short passcodes don't spend it all
+// adding and deleting one character in the last slot that accepts noise.
 func GenerateKeystrokes(passcode []rune, charset string, steps int, r Rand) ([]Step, error) {
 	n := len(passcode)
 	if n == 0 {
@@ -112,65 +118,67 @@ func GenerateKeystrokes(passcode []rune, charset string, steps int, r Rand) ([]S
 		return nil, fmt.Errorf("a 1-character passcode allows no noise; steps must be 1")
 	}
 
+	noise := allocateNoise((steps-n)/2, n, r)
+
 	out := make([]Step, 0, steps)
-	k := 0 // committed correct prefix length (buffer[:k] == passcode[:k])
-	g := 0 // garbage characters currently on top
-
-	for i := 0; i < steps; i++ {
-		remaining := steps - i
-		// minNeeded = backspaces to clear current garbage + remaining correct adds.
-		minNeeded := g + (n - k)
-
-		if remaining == minNeeded {
-			// Forced finish: drain all garbage, then add the remaining correct chars.
-			if g > 0 {
-				out = append(out, Step{Action: Backspace})
-				g--
-			} else {
-				out = append(out, Step{Action: AddCorrect, Char: passcode[k]})
-				k++
-			}
-			continue
+	for k, c := range passcode {
+		if k < len(noise) {
+			out = appendNoiseWalk(out, noise[k], n-1-k, cs, r)
 		}
-
-		// Free choice. The parity invariant guarantees remaining-minNeeded is
-		// even and >= 2 here, so adding noise (which costs 2 to undo) stays in budget.
-		var opts []Action
-		// Advance a correct char only while doing so keeps noise room (k+1 <= n-2);
-		// the last two correct chars are placed in the forced finish, since the
-		// auto-submit cap forbids noise once the buffer is one short of full.
-		if g == 0 && k <= n-3 {
-			opts = append(opts, AddCorrect)
-		}
-		if g > 0 {
-			opts = append(opts, Backspace)
-		}
-		// Noise is only allowed below the cap: k+g must stay <= n-2 so the next
-		// add cannot reach the full length and submit early.
-		if k+g <= n-2 {
-			opts = append(opts, AddNoise)
-		}
-
-		switch opts[r.Intn(len(opts))] {
-		case AddCorrect:
-			out = append(out, Step{Action: AddCorrect, Char: passcode[k]})
-			k++
-		case AddNoise:
-			out = append(out, Step{Action: AddNoise, Char: cs[r.Intn(len(cs))]})
-			g++
-		case Backspace:
-			out = append(out, Step{Action: Backspace})
-			g--
-		}
+		out = append(out, Step{Action: AddCorrect, Char: c})
 	}
 
-	if k != n || g != 0 {
-		return nil, fmt.Errorf("internal error: ended at k=%d g=%d for passcode length %d", k, g, n)
+	if len(out) != steps {
+		return nil, fmt.Errorf("internal error: built %d keystrokes, want %d", len(out), steps)
 	}
 	if got := replay(out); string(got) != string(passcode) {
 		return nil, fmt.Errorf("internal error: replay %q != passcode %q", string(got), string(passcode))
 	}
 	return out, nil
+}
+
+// allocateNoise randomly shares count noise characters across the gaps of a
+// passcode of length n, returning how many each gap gets. Only gaps 0..n-2 can
+// hold noise. Each character picks a gap with probability proportional to that
+// gap's headroom, so counts vary per run and the roomier gaps receive more.
+func allocateNoise(count, n int, r Rand) []int {
+	if n < 2 {
+		return nil
+	}
+	alloc := make([]int, n-1)
+	totalHeadroom := n * (n - 1) / 2 // (n-1) + (n-2) + ... + 1
+	for i := 0; i < count; i++ {
+		pick := r.Intn(totalHeadroom)
+		for k := range alloc {
+			headroom := n - 1 - k
+			if pick < headroom {
+				alloc[k]++
+				break
+			}
+			pick -= headroom
+		}
+	}
+	return alloc
+}
+
+// appendNoiseWalk appends a random excursion of count noise characters, each
+// later deleted, with at most headroom of them in the buffer at once. It starts
+// and ends with no garbage on top, leaving the committed prefix untouched.
+func appendNoiseWalk(out []Step, count, headroom int, cs []rune, r Rand) []Step {
+	depth := 0
+	for count > 0 || depth > 0 {
+		canAdd := count > 0 && depth < headroom
+		canDelete := depth > 0
+		if canAdd && (!canDelete || r.Intn(2) == 0) {
+			out = append(out, Step{Action: AddNoise, Char: cs[r.Intn(len(cs))]})
+			count--
+			depth++
+		} else {
+			out = append(out, Step{Action: Backspace})
+			depth--
+		}
+	}
+	return out
 }
 
 // replay returns the buffer produced by following steps on an empty buffer.

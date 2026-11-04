@@ -109,6 +109,86 @@ func TestKeystrokesReconstructAndRespectCap(t *testing.T) {
 	}
 }
 
+// TestNoiseIsDistributedAcrossGaps guards against the 4-digit regression where
+// the generator reached two committed characters early and spent the rest of the
+// budget adding and deleting one character in the third slot.
+func TestNoiseIsDistributedAcrossGaps(t *testing.T) {
+	const (
+		n     = 4
+		steps = 18
+		runs  = 2000
+	)
+	noiseChars := (steps - n) / 2
+	cs, _ := internal.GetCharset("numeric", false)
+	passcode := []rune("4827")
+
+	noiseAtGap := make([]int, n)
+	for seed := int64(0); seed < runs; seed++ {
+		ks, err := internal.GenerateKeystrokes(passcode, cs, steps, rand.New(rand.NewSource(seed)))
+		if err != nil {
+			t.Fatalf("seed=%d: %v", seed, err)
+		}
+		k := 0
+		for _, s := range ks {
+			switch s.Action {
+			case internal.AddCorrect:
+				k++
+			case internal.AddNoise:
+				noiseAtGap[k]++
+			}
+		}
+	}
+
+	if noiseAtGap[n-1] != 0 {
+		t.Errorf("gap %d has no headroom but received %d noise characters", n-1, noiseAtGap[n-1])
+	}
+	for k := 0; k < n-2; k++ {
+		if noiseAtGap[k] <= noiseAtGap[k+1] {
+			t.Errorf("gap %d (%d noise) should receive more than gap %d (%d noise): %v", k, noiseAtGap[k], k+1, noiseAtGap[k+1], noiseAtGap)
+		}
+	}
+	// The single-slot gap should get well under a third of the noise.
+	if got, limit := noiseAtGap[n-2], runs*noiseChars/3; got >= limit {
+		t.Errorf("single-slot gap received %d noise characters, want under %d: %v", got, limit, noiseAtGap)
+	}
+}
+
+// TestBackspacesOnlyRemoveNoise checks the committed-prefix invariant: correct
+// characters are placed on a clean buffer and are never deleted.
+func TestBackspacesOnlyRemoveNoise(t *testing.T) {
+	cs, _ := internal.GetCharset("numeric", false)
+	for seed := int64(0); seed < 500; seed++ {
+		r := rand.New(rand.NewSource(seed))
+		for n := 2; n <= 12; n++ {
+			passcode, err := internal.GeneratePassword(cs, n, r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			steps := internal.AdjustSteps(n+r.Intn(24), n)
+			ks, err := internal.GenerateKeystrokes(passcode, cs, steps, r)
+			if err != nil {
+				t.Fatalf("seed=%d n=%d steps=%d: %v", seed, n, steps, err)
+			}
+			garbage := 0
+			for i, s := range ks {
+				switch s.Action {
+				case internal.AddNoise:
+					garbage++
+				case internal.Backspace:
+					garbage--
+					if garbage < 0 {
+						t.Fatalf("seed=%d n=%d: step %d deletes a correct character", seed, n, i)
+					}
+				case internal.AddCorrect:
+					if garbage != 0 {
+						t.Fatalf("seed=%d n=%d: step %d places a correct character on top of noise", seed, n, i)
+					}
+				}
+			}
+		}
+	}
+}
+
 func TestAdjustSteps(t *testing.T) {
 	tests := []struct {
 		requested, n, want int
